@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lakekeeper
+      POSTGRES_USER: lakekeeper
+      POSTGRES_PASSWORD: lakekeeper_dev_password
+    volumes:
+      - lakehouse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lakekeeper -d lakekeeper"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: quay.io/lakekeeper/catalog:latest
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://lakekeeper:lakekeeper_dev_password@postgres:5432/lakekeeper
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://lakekeeper:lakekeeper_dev_password@postgres:5432/lakekeeper
+      LAKEKEEPER__PG_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+
+  lakekeeper:
+    image: quay.io/lakekeeper/catalog:latest
+    command: ["serve"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://lakekeeper:lakekeeper_dev_password@postgres:5432/lakekeeper
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://lakekeeper:lakekeeper_dev_password@postgres:5432/lakekeeper
+      LAKEKEEPER__PG_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef"
+    ports:
+      - "8181:8181"
+
+  trino:
+    image: trinodb/trino:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+    depends_on:
+      - lakekeeper
+    restart: unless-stopped
+
+volumes:
+  lakehouse-postgres-data:
